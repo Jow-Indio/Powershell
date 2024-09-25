@@ -21,7 +21,7 @@ $ServerList = (Get-AdComputer -Filter {enabled -eq "true"} -SearchBase 'OU=WORKS
 $totalComputers = $ServerList.Count
 $completedComputers = 0
 
-#$ServerList = "10.254.64.132"
+#Files of Agent to Install or update
 $file1 = '\\Sharedfolder\f$\GLPI\Agentes\*1.11-x64.msi'
 $file2 = '\\Sharedfolder\f$\GLPI\Agentes\*1.7.3-x86.msi'
 
