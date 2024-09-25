@@ -1,6 +1,5 @@
 # This powershel it to install or update remotely GLPI Agent Several computers, in this case use AD to fetch computers and intall.
 # I create also a SheduledTaks on windows to run every 3H, that invoke this powershel.
-
 param([switch]$Elevated)
 
 function Test-Admin {
@@ -10,71 +9,67 @@ function Test-Admin {
 
 if ((Test-Admin) -eq $false)  {
     if ($elevated) {
-        # tried to elevate, did not work, aborting
+        # Tried to elevate, did not work, aborting
     } else {
         Start-Process powershell.exe -Verb RunAs -ArgumentList ('-noprofile -noexit -file "{0}" -elevated' -f ($myinvocation.MyCommand.Definition))
     }
     exit
 }
 
-$ServerList = (Get-AdComputer -Filter {enabled -eq "true"} -SearchBase 'OU=WORKSTATIONS,OU=XXX,OU=BUILDINGS,DC=XX,DC=Empresa,DC=com').Name
-#Criar Progess Bar
+$ServerList = (Get-AdComputer -Filter {enabled -eq "true"} -SearchBase 'OU=WORKSTATIONS,OU=XXX,OU=XXX,DC=XX,DC=XXXXX,DC=com').Name
+# Create Progress Bar
 $totalComputers = $ServerList.Count
 $completedComputers = 0
 
-# Agent Files on Shared Folder
-$file1 = '\\SERVIDOR\f$\GLPI\*1.5-x64.msi'
-$file2 = '\\SERVIDOR\f$\GLPI\*1.5-x86.msi'
+#$ServerList = "10.254.64.132"
+$file1 = '\\Sharedfolder\f$\GLPI\Agentes\*1.11-x64.msi'
+$file2 = '\\Sharedfolder\f$\GLPI\Agentes\*1.7.3-x86.msi'
 
 foreach ($ComputerName in $ServerList){
-$pingstatus = ""
-IF (Test-Connection -BufferSize 32 -Count 1 -ComputerName $ComputerName -Quiet) {
+    $pingstatus = ""
+    IF (Test-Connection -BufferSize 32 -Count 1 -ComputerName $ComputerName -Quiet) {
         $pingstatus = "Online"
         Write-Host $ComputerName "Online" -ForegroundColor Blue -ErrorAction SilentlyContinue
 
-$Check=@(Invoke-Command -ComputerName $ComputerName -ErrorAction SilentlyContinue {Get-ItemProperty -Path 'HKLM:\SOFTWARE\GLPI-Agent\Installer' -Name Version | select Version})
-    #$Check=@(gp "HKLM:\SOFTWARE\GLPI-Agent\Installer").Version
-    if ($Check.Version -contains "1.5")
-    {
-            #Log("'" + $ComputerName + "'Servers are not pinging")
-        Write-Host $ComputerName "Já contém o GLPI instalado" -ForegroundColor Green -ErrorAction SilentlyContinue
-}
-Elseif ($Check.Version -notcontains "1.5" ) 
+        $Check=@(Invoke-Command -ComputerName $ComputerName -ErrorAction SilentlyContinue {Get-ItemProperty -Path 'HKLM:\SOFTWARE\GLPI-Agent\Installer' -Name Version | select Version})
+        #$Check=@(gp "HKLM:\SOFTWARE\GLPI-Agent\Installer").Version
+        if ($Check.Version -contains "1.11") {
+            # Log("'" + $ComputerName + "'Servers are not pinging")
+            Write-Host $ComputerName "Already has GLPI installed" -ForegroundColor Green -ErrorAction SilentlyContinue
+        }
+        Elseif ($Check.Version -notcontains "1.11") {
+            $session = New-PSSession -ComputerName $computerName
 
-{
-$session = New-PSSession -ComputerName $computerName
+            $osArchitecture = (Get-WmiObject Win32_OperatingSystem | Select-Object -ExpandProperty osarchitecture)
 
-$osArchitecture = (Get-WmiObject Win32_OperatingSystem | Select-Object -ExpandProperty osarchitecture)
+            if ($osArchitecture -like "64*") {
+                # 64-bit code here
+                Write-Host "$computerName 64-bit OS"
+                Copy-Item -Path $file1 -ToSession $session -Destination 'c:\windows\temp'
+                $msiPath = 'C:\Windows\Temp\GLPI-Agent-1.11-x64.msi'
+            } else {
+                # 32-bit code here
+                Write-Host "$computerName 32-bit OS"
+                Copy-Item -Path $file2 -ToSession $session -Destination 'c:\windows\temp'
+                $msiPath = 'C:\Windows\Temp\GLPI-Agent-1.7.3-x86.msi'
+            }
 
-if ($osArchitecture -like "64*") {
-    # 64-bit code here
-    Write-Host "$computerName 64-bit OS"
-    Copy-Item -Path $file1 -ToSession $session -Destination 'c:\windows\temp'
-    $msiPath = 'C:\Windows\Temp\GLPI-Agent-1.5-x64.msi'
-} else {
-    # 32-bit code here
-    Write-Host "$computerName 32-bit OS"
-    Copy-Item -Path $file2 -ToSession $session -Destination 'c:\windows\temp'
-    $msiPath = 'C:\Windows\Temp\GLPI-Agent-1.5-x86.msi'
-}
-
-Invoke-Command -Session $session -ScriptBlock {
-    Start-Process -FilePath 'msiexec.exe' -ArgumentList "/i $using:msiPath RUNNOW=1 SERVER='http://SERVIDOR:8090/front/inventory.php' /passive /q /log C:\GLPIInstall.log" -Wait
-} 
-        Write-Host  "A instalar no" $ComputerName -ForegroundColor Green
-        Timeout /T 30
-        #Log("'" + $ComputerName + "' Successfully started operation")
-        Remove-PSSession $session
-    }}
-    Else 
-    {
-            Write-Host $ComputerName  "Offline" -ForegroundColor red
-}
+            Invoke-Command -Session $session -ScriptBlock {
+                Start-Process -FilePath 'msiexec.exe' -ArgumentList "/i $using:msiPath RUNNOW=1 SERVER='https://gav-glpi.pt.XXXXX.com:4443/plugins/glpiinventory/' /passive /q /log C:\GLPIInstall.log" -Wait
+            } 
+            Write-Host "Installing on" $ComputerName -ForegroundColor Green
+            Timeout /T 30
+            # Log("'" + $ComputerName + "' Successfully started operation")
+            Remove-PSSession $session
+        }
+    } Else {
+        Write-Host $ComputerName "Offline" -ForegroundColor red
+    }
 
     $completedComputers++
     $progressPercentage = [Math]::Round(($completedComputers / $totalComputers) * 100)
-    Write-Progress -Activity "Instalando GLPI em $totalComputers Computadores" -Status "Progresso: $progressPercentage%" -PercentComplete $progressPercentage
+    Write-Progress -Activity "Installing GLPI on $totalComputers Computers" -Status "Progress: $progressPercentage%" -PercentComplete $progressPercentage
 }
 
-# Limpa a barra de progresso
-Clear-Progress
+# Clear the progress bar
+# Clear-Progress
